@@ -4,7 +4,7 @@
 
 ---
 ## HF _Token 
- HF_TOKEN=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
+ HF_TOKEN=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
  HF_MODEL=Qwen/Qwen2.5-72B-Instruct
  PORT=8001
 ## 📌 Problem Statement
