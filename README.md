@@ -3,7 +3,10 @@
 **RAKSHAK AI** is an Agentic AI-powered emergency operations system that autonomously observes natural-language disaster reports, classifies the disaster type, pinpoints the affected geographic region, calculates a quantitative risk index (0–100), makes autonomous alert decisions, and dispatches simulated multi-channel regional warning broadcasts.
 
 ---
-
+## HF _Token 
+ HF_TOKEN=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
+ HF_MODEL=Qwen/Qwen2.5-72B-Instruct
+ PORT=8001
 ## 📌 Problem Statement
 
 During sudden catastrophic events (floods, cyclones, earthquakes, wildfires), emergency response delays are often caused by the time taken to parse chaotic field reports, assess regional severity, determine alert thresholds, and compose multi-channel public warnings. Manual processes create critical communication bottlenecks when minutes save lives.
