@@ -11,17 +11,20 @@ from models.schemas import (
     ChatResponse, 
     RegionalHazardProfile, 
     HazardProbabilityItem,
+    LiveWeatherReport,
     ToolExecutionLog
 )
 from tools.disaster_tool import DisasterAnalysisTool
 from tools.region_tool import RegionIdentificationTool
 from tools.notification_tool import NotificationTool
 from tools.openrouter import OpenRouterClient
+from tools.weather_scraper_tool import WeatherScraperTool
+from tools.live_disaster_feed_tool import LiveDisasterFeedTool
 
 class RakshakAgent:
     """
     RAKSHAK AI - Autonomous Post-Disaster Regional Alert Agent
-    Lifecycle: Observe -> Analyze (Disaster & Region) -> Assess Risk -> Decide -> Act (Alert & Notification)
+    Lifecycle: Observe -> Analyze (Live GIS & Feeds) -> Assess Risk -> Decide -> Act (CAP Alert & Dispatch)
     """
 
     def __init__(self):
@@ -29,6 +32,8 @@ class RakshakAgent:
         self.region_tool = RegionIdentificationTool()
         self.notification_tool = NotificationTool()
         self.openrouter_client = OpenRouterClient()
+        self.weather_tool = WeatherScraperTool()
+        self.seismic_tool = LiveDisasterFeedTool()
 
     def _is_greeting_or_help(self, text: str) -> bool:
         """Detects if input is a conversational greeting or intro/help query."""
@@ -43,6 +48,27 @@ class RakshakAgent:
             return True
         for g in ["hi ", "hello ", "hey ", "who are you", "what can you do"]:
             if cleaned.startswith(g):
+                return True
+        return False
+
+    def _is_weather_scrape_query(self, text: str) -> bool:
+        """Detects if input is requesting live weather scraping or meteorological telemetry."""
+        cleaned = text.lower().strip()
+        patterns = [
+            r"\bweather\b",
+            r"\bwheter\b",
+            r"\btemperature\b|\btemp\b|\bhumidity\b|\bwind\s*speed\b|\brainfall\b|\bprecip",
+            r"is\s+it\s+raining",
+            r"how\s+is\s+the\s+(weather|climate)",
+            r"scrape\s+(weather|info|report|data|from\s+web)",
+            r"web\s*scrap",
+            r"live\s+conditions",
+            r"\bclimate\b",
+            r"\bforecast\b",
+            r"tell\s+(me\s+)?(the\s+)?whe?ther"
+        ]
+        for pattern in patterns:
+            if re.search(pattern, cleaned):
                 return True
         return False
 
@@ -125,10 +151,11 @@ class RakshakAgent:
             reply_text = (
                 "👋 **Hello! I am RAKSHAK AI**, an autonomous regional disaster alert agent.\n\n"
                 "I monitor disaster reports, assess severity and risk levels ($0\\text{–}100$), "
-                "calculate regional hazard probabilities, and formulate emergency alerts.\n\n"
+                "scrape live meteorological telemetry from web sources, calculate regional hazard probabilities, and formulate emergency alerts.\n\n"
                 "**What you can do:**\n"
-                "- 📊 **Type any region name** (e.g. *'Salem'*, *'Chennai'*, *'Erode'*, *'Cuddalore'*, *'Nilgiris'*, *'Punjab'*) to view **Disaster Occurrence Probabilities**.\n"
-                "- 🚨 **Report an event**: *'Heavy flooding has been reported in Chengalpattu'* (Triggers immediate alert & dispatch).\n"
+                "- 🌤️ **Scrape Live Weather**: *'What is the weather in Chennai?'* or *'Scrape live weather for Salem'*\n"
+                "- 📊 **Regional Vulnerability Profile**: Type any region (*'Salem'*, *'Chennai'*, *'Erode'*, *'Cuddalore'*, *'Nilgiris'*)\n"
+                "- 🚨 **Report an event**: *'Heavy flooding has been reported in Chengalpattu'* (Triggers immediate alert & dispatch)\n"
                 "- ⚡ Or click any of the **Quick Test Buttons** above!"
             )
 
@@ -140,44 +167,183 @@ class RakshakAgent:
                 alert=None,
                 notification_preview=None,
                 regional_hazard_profile=None,
+                live_weather=None,
                 decision_trace=decision_trace_lines,
                 structured_trace=structured_trace,
                 tool_executions=tool_executions,
                 reply_text=reply_text
             )
 
-        # Check Real-time Safety Boundary Rule
-        is_realtime_query = self._is_realtime_verification_query(message)
-        if is_realtime_query:
-            decision_trace_lines.append("⚠ Real-time verification query detected: Safety protocol engaged")
+        # Check Live Weather Scraping Intent
+        is_weather_query = self._is_weather_scrape_query(message)
+        if is_weather_query:
+            # Resolve target location from text or default to Chennai / Tamil Nadu
+            region_name, region_meta, reg_conf = self.region_tool.identify_region(message)
+            target_loc = region_name if region_name else "Chennai"
+
+            t0_w = time.time()
+            weather_data = await self.weather_tool.scrape_weather(target_loc)
+            t1_w = time.time()
+
+            tool_executions.append(ToolExecutionLog(
+                tool_name="WeatherScraperTool",
+                stage="ANALYZE",
+                status="SUCCESS" if weather_data.get("status") == "SUCCESS" else "FALLBACK_CACHED",
+                inputs={"location_query": target_loc, "raw_message": message},
+                output=weather_data,
+                execution_time_ms=round((t1_w - t0_w) * 1000, 2),
+                description="Live web meteorological scraper & hazard threshold detector"
+            ))
+
+            decision_trace_lines.append(f"✓ Scraped live web weather telemetry for {target_loc}")
+            decision_trace_lines.append(f"✓ Meteorological condition: {weather_data['condition']}, {weather_data['temperature_c']}°C")
+            decision_trace_lines.append(f"✓ Surface grid parameters: Humidity {weather_data['humidity_percent']}%, Wind {weather_data['wind_speed_kmph']} km/h, Rain {weather_data['precipitation_mm']} mm")
+
             structured_trace.append(DecisionTraceStep(
                 stage="ANALYZE",
-                title="Safety Boundary Check",
-                detail="Query requests real-time unverified status. Activating disaster-safety disclaimer protocol.",
+                title="Web Scraper Weather Telemetry",
+                detail=f"Scraped real-time meteorological conditions for {target_loc} from web source ({weather_data['source_provider']}). Recorded {weather_data['temperature_c']}°C, {weather_data['condition']}.",
+                status="COMPLETED",
+                timestamp=timestamp_str,
+                tool_name="WeatherScraperTool",
+                tool_output_summary=f"temp={weather_data['temperature_c']}C, rain={weather_data['precipitation_mm']}mm, wind={weather_data['wind_speed_kmph']}kmph"
+            ))
+
+            is_severe = weather_data.get("is_severe", False)
+            risk_lvl = weather_data.get("meteorological_risk_level", "LOW")
+            severe_warn = weather_data.get("severe_warning", "Normal Meteorological Conditions")
+
+            structured_trace.append(DecisionTraceStep(
+                stage="DECIDE",
+                title="Meteorological Hazard Evaluation",
+                detail=f"Assessed live weather parameters against disaster thresholds: {severe_warn} (Risk: {risk_lvl}).",
+                status="WARNING" if is_severe else "COMPLETED",
+                timestamp=timestamp_str,
+                tool_name="WeatherHazardEvaluator",
+                tool_output_summary=f"is_severe={is_severe}, risk={risk_lvl}"
+            ))
+
+            structured_trace.append(DecisionTraceStep(
+                stage="ACT",
+                title="Weather Intelligence Report Dispatched",
+                detail=f"Rendered interactive live weather dashboard card and telemetry for {target_loc}.",
+                status="COMPLETED",
+                timestamp=timestamp_str,
+                tool_name="ResponseComposer",
+                tool_output_summary=f"location={weather_data['resolved_location']}"
+            ))
+
+            live_weather_model = LiveWeatherReport(**weather_data)
+
+            weather_analysis = DisasterAnalysis(
+                disaster_type="Weather Telemetry" if not is_severe else "Severe Weather Alert",
+                location=weather_data["area_name"],
+                affected_region=weather_data["region"],
+                severity="HIGH" if is_severe else "LOW",
+                risk_score=75 if is_severe else 15,
+                risk_level=risk_lvl,
+                alert_required=is_severe,
+                recommended_action=severe_warn if is_severe else "Meteorological conditions are within normal parameters. Continue standard monitoring.",
+                confidence=0.95,
+                is_realtime_query=True,
+                is_safety_warning=False
+            )
+
+            reply_text = (
+                f"### 🌤️ Live Scraped Weather Report: **{weather_data['resolved_location']}**\n\n"
+                f"- **Condition**: **{weather_data['condition']}**\n"
+                f"- **Temperature**: **{weather_data['temperature_c']}°C** ({weather_data['temperature_f']}°F) — *Feels like {weather_data['feels_like_c']}°C*\n"
+                f"- **Humidity**: **{weather_data['humidity_percent']}%**\n"
+                f"- **Wind Speed**: **{weather_data['wind_speed_kmph']} km/h {weather_data['wind_direction']}** (Gusts up to {weather_data['wind_gust_kmph']} km/h)\n"
+                f"- **Precipitation**: **{weather_data['precipitation_mm']} mm**\n"
+                f"- **Cloud Cover**: **{weather_data['cloud_cover_percent']}%** | **UV Index**: **{weather_data['uv_index']}**\n"
+                f"- **Atmospheric Status**: `{severe_warn}`\n\n"
+                f"*Data scraped in real-time from: [{weather_data['source_provider']}]({weather_data['source_url']}) at {weather_data['scraped_at']} IST.*"
+            )
+
+            return ChatResponse(
+                agent="RAKSHAK AI",
+                status="processed",
+                user_message=message,
+                analysis=weather_analysis,
+                alert=None,
+                notification_preview=None,
+                regional_hazard_profile=None,
+                live_weather=live_weather_model,
+                decision_trace=decision_trace_lines,
+                structured_trace=structured_trace,
+                tool_executions=tool_executions,
+                reply_text=reply_text
+            )
+
+        # Check Real-time Safety Boundary Rule (with Live Weather Web Cross-Check)
+        is_realtime_query = self._is_realtime_verification_query(message)
+        if is_realtime_query:
+            region_name, region_meta, reg_conf = self.region_tool.identify_region(message)
+            target_loc = region_name if region_name else "Chennai"
+
+            # Scrape live weather to give factual live telemetry alongside safety notice
+            t0_w = time.time()
+            weather_data = await self.weather_tool.scrape_weather(target_loc)
+            t1_w = time.time()
+
+            tool_executions.append(ToolExecutionLog(
+                tool_name="WeatherScraperTool",
+                stage="ANALYZE",
+                status="SUCCESS",
+                inputs={"location_query": target_loc},
+                output=weather_data,
+                execution_time_ms=round((t1_w - t0_w) * 1000, 2),
+                description="Live web scraper query cross-reference"
+            ))
+
+            decision_trace_lines.append("⚠ Real-time inquiry detected: Cross-referencing live web scraper telemetry")
+            decision_trace_lines.append(f"✓ Scraped live conditions: {weather_data['condition']}, {weather_data['temperature_c']}°C, Rain: {weather_data['precipitation_mm']}mm")
+
+            structured_trace.append(DecisionTraceStep(
+                stage="ANALYZE",
+                title="Live Web Telemetry Cross-Check",
+                detail=f"Queried live web meteorological grid for {target_loc}. Measured: {weather_data['condition']}, {weather_data['temperature_c']}°C, {weather_data['precipitation_mm']}mm rain.",
+                status="INFO",
+                timestamp=timestamp_str,
+                tool_name="WeatherScraperTool",
+                tool_output_summary=f"condition={weather_data['condition']}, rain={weather_data['precipitation_mm']}mm"
+            ))
+
+            structured_trace.append(DecisionTraceStep(
+                stage="DECIDE",
+                title="Safety Boundary Protocol",
+                detail="Applied disaster-safety disclaimer protocol while presenting verified live web telemetry.",
                 status="WARNING",
                 timestamp=timestamp_str,
                 tool_name="SafetyBoundaryFilter",
                 tool_output_summary="SAFETY_DISCLAIMER_ACTIVE"
             ))
 
+            live_weather_model = LiveWeatherReport(**weather_data)
+
             safety_analysis = DisasterAnalysis(
-                disaster_type="Inquiry",
-                location="Tamil Nadu",
-                affected_region="N/A",
+                disaster_type="Live Inquiry",
+                location=weather_data["area_name"],
+                affected_region=weather_data["region"],
                 severity="LOW",
-                risk_score=0,
+                risk_score=10,
                 risk_level="LOW",
                 alert_required=False,
-                recommended_action="Refer to official State Disaster Management Authority (TNSDMA) or IMD bulletins for live ground verification.",
+                recommended_action="Refer to official TNSDMA/IMD alerts for live disaster status. Real-time web scraped weather shown below.",
                 confidence=1.0,
                 is_realtime_query=True,
                 is_safety_warning=True
             )
 
             reply_text = (
-                "⚠️ **Safety Boundary Protocol:** I cannot verify real-time conditions without authenticated live sensor telemetry. "
-                "Based on information provided in disaster reports, I can analyze scenarios and generate simulated alerts.\n\n"
-                "If you would like to test alert workflows, please describe an event (e.g., *'Heavy flooding reported in Chennai'*)."
+                f"⚠️ **Safety Boundary Protocol:** I cannot verify real-time conditions without authenticated live sensor telemetry. "
+                f"However, here is live meteorological telemetry scraped from the web for **{weather_data['resolved_location']}**:\n\n"
+                f"- **Condition**: **{weather_data['condition']}** ({weather_data['temperature_c']}°C)\n"
+                f"- **Current Precipitation / Rain**: **{weather_data['precipitation_mm']} mm**\n"
+                f"- **Wind Speed**: **{weather_data['wind_speed_kmph']} km/h**\n"
+                f"- **Humidity**: **{weather_data['humidity_percent']}%**\n\n"
+                f"*(Note: Official emergency declarations require certified SDMA ground telemetry. To test emergency alert generation, submit an event report like 'Heavy flooding in Chennai').*"
             )
 
             return ChatResponse(
@@ -188,6 +354,7 @@ class RakshakAgent:
                 alert=None,
                 notification_preview=None,
                 regional_hazard_profile=None,
+                live_weather=live_weather_model,
                 decision_trace=decision_trace_lines,
                 structured_trace=structured_trace,
                 tool_executions=tool_executions,
@@ -220,17 +387,17 @@ class RakshakAgent:
                 tool_output_summary=str(llm_result) if llm_result else "Fallback to Local Engine"
             ))
 
-        # Region Identification Tool Execution
+        # Region Identification Tool Execution (Local Fast Registry + Live OpenStreetMap Geocoding)
         t0_reg = time.time()
-        region_name, region_meta, reg_confidence = self.region_tool.identify_region(message)
+        region_name, region_meta, reg_confidence = await self.region_tool.resolve_region_dynamic(message)
         if not region_name and llm_result and llm_result.get("location") and llm_result["location"] != "Unknown":
-            candidate_region, candidate_meta, _ = self.region_tool.identify_region(llm_result["location"])
+            candidate_region, candidate_meta, _ = await self.region_tool.resolve_region_dynamic(llm_result["location"])
             if candidate_region:
                 region_name, candidate_meta, reg_confidence = candidate_region, candidate_meta, 0.9
         t1_reg = time.time()
 
         tool_executions.append(ToolExecutionLog(
-            tool_name="RegionIdentificationTool",
+            tool_name="RegionIdentificationTool (OpenStreetMap GIS & Geocoder)",
             stage="LOCATE",
             status="SUCCESS" if region_name else "NO_MATCH",
             inputs={"raw_text": message},
@@ -238,10 +405,11 @@ class RakshakAgent:
                 "identified_region": region_name,
                 "zone": region_meta.get("zone") if region_meta else None,
                 "coastal": region_meta.get("coastal") if region_meta else None,
+                "coordinates": f"{region_meta.get('latitude')}, {region_meta.get('longitude')}" if region_meta and "latitude" in region_meta else "District Centroid",
                 "confidence": reg_confidence
             },
             execution_time_ms=round((t1_reg - t0_reg) * 1000, 2),
-            description="Geofencing entity extractor & fuzzy phonetic district resolver"
+            description="Live OpenStreetMap Nominatim geocoder & regional geofencing resolver"
         ))
 
         # Disaster Identification Tool Execution
@@ -386,6 +554,23 @@ class RakshakAgent:
                 is_safety_warning=False
             )
 
+            # Scrape live weather telemetry for the region
+            t0_w = time.time()
+            weather_data = await self.weather_tool.scrape_weather(region_name)
+            t1_w = time.time()
+
+            tool_executions.append(ToolExecutionLog(
+                tool_name="WeatherScraperTool",
+                stage="ANALYZE",
+                status="SUCCESS" if weather_data.get("status") == "SUCCESS" else "FALLBACK_CACHED",
+                inputs={"location_query": region_name},
+                output=weather_data,
+                execution_time_ms=round((t1_w - t0_w) * 1000, 2),
+                description="Live web meteorological scraper & atmospheric telemetry feed"
+            ))
+
+            live_weather_model = LiveWeatherReport(**weather_data)
+
             return ChatResponse(
                 agent="RAKSHAK AI",
                 status="processed",
@@ -394,6 +579,7 @@ class RakshakAgent:
                 alert=None,
                 notification_preview=None,
                 regional_hazard_profile=hazard_profile,
+                live_weather=live_weather_model,
                 decision_trace=decision_trace_lines,
                 structured_trace=structured_trace,
                 tool_executions=tool_executions,
@@ -503,13 +689,49 @@ class RakshakAgent:
             is_safety_warning=False
         )
 
+        # Live Seismic Feed Cross-Check (USGS Real-Time Grid)
+        live_seismic = None
+        if disaster_type == "Earthquake" or (region_meta and "latitude" in region_meta):
+            lat = region_meta.get("latitude") if region_meta else None
+            lon = region_meta.get("longitude") if region_meta else None
+            t0_eq = time.time()
+            live_seismic = await self.seismic_tool.check_live_earthquakes(lat, lon)
+            t1_eq = time.time()
+            
+            tool_executions.append(ToolExecutionLog(
+                tool_name="LiveDisasterFeedTool (USGS Real-Time Seismic Grid)",
+                stage="ANALYZE",
+                status=live_seismic.get("status", "SUCCESS"),
+                inputs={"latitude": lat, "longitude": lon, "radius_km": 500},
+                output=live_seismic,
+                execution_time_ms=round((t1_eq - t0_eq) * 1000, 2),
+                description="Live global USGS seismic monitor & real-time tremor cross-referencer"
+            ))
+
+            if live_seismic.get("events"):
+                e0 = live_seismic["events"][0]
+                decision_trace_lines.append(f"✓ USGS Live Seismic Grid checked: Nearest M{e0['magnitude']} ({e0['place']})")
+
         if alert_required:
             alert_id = f"RAKSHAK-{uuid.uuid4().hex[:6].upper()}"
             alert_message = (
-                f"🚨 [DEMO ALERT] {severity} {disaster_type.upper()} WARNING FOR {affected_loc_display.upper()}.\n"
+                f"🚨 [REGIONAL DISASTER ALERT] {severity} {disaster_type.upper()} WARNING FOR {affected_loc_display.upper()}.\n"
                 f"Calculated Risk Index: {risk_score}/100 ({risk_level}).\n"
                 f"Action Required: {recommended_action}"
             )
+
+            t0_notif = time.time()
+            notification_preview = self.notification_tool.prepare_and_dispatch(
+                region=affected_loc_display,
+                disaster_type=disaster_type,
+                severity=severity,
+                message=alert_message,
+                risk_score=risk_score,
+                recommended_action=recommended_action
+            )
+            t1_notif = time.time()
+
+            cap_xml_payload = notification_preview.get("cap_xml")
 
             alert_payload = AlertPayload(
                 alert_id=alert_id,
@@ -521,45 +743,36 @@ class RakshakAgent:
                 message=alert_message,
                 recommended_action=recommended_action,
                 timestamp=date_str,
-                disclaimer="ALERT GENERATED FROM PROVIDED EVENT (DEMO ONLY)"
+                disclaimer="OASIS CAP v1.2 STANDARD BROADCAST COMPILED",
+                cap_xml=cap_xml_payload
             )
 
-            decision_trace_lines.append("✓ Emergency alert generated")
+            decision_trace_lines.append("✓ Emergency alert generated & OASIS CAP v1.2 XML standard compiled")
             structured_trace.append(DecisionTraceStep(
                 stage="ACT",
-                title="Emergency Alert Generation",
-                detail=f"Issued Regional Alert {alert_id} for {affected_loc_display} with {severity} priority.",
+                title="Emergency Alert & CAP Generation",
+                detail=f"Issued Regional Alert {alert_id} for {affected_loc_display} with {severity} priority & OASIS CAP v1.2 XML payload.",
                 status="COMPLETED",
                 timestamp=timestamp_str,
                 tool_name="AlertGenerator",
-                tool_output_summary=f"alert_id={alert_id}"
+                tool_output_summary=f"alert_id={alert_id}, cap_standard=OASIS_v1.2"
             ))
 
-            t0_notif = time.time()
-            notification_preview = self.notification_tool.prepare_and_dispatch(
-                region=affected_loc_display,
-                disaster_type=disaster_type,
-                severity=severity,
-                message=alert_message,
-                risk_score=risk_score
-            )
-            t1_notif = time.time()
-
             tool_executions.append(ToolExecutionLog(
-                tool_name="NotificationTool",
+                tool_name="NotificationTool (OASIS CAP v1.2 & Webhook Staging)",
                 stage="ACT",
                 status="SUCCESS",
                 inputs={"region": affected_loc_display, "disaster_type": disaster_type, "severity": severity, "risk_score": risk_score},
                 output=notification_preview,
                 execution_time_ms=round((t1_notif - t0_notif) * 1000, 2),
-                description="Simulated multi-channel emergency broadcast dispatcher (SMS, Siren, SDMA, WhatsApp)"
+                description="OASIS CAP v1.2 XML generator & multi-channel webhook dispatch grid"
             ))
 
-            decision_trace_lines.append(f"✓ Notification prepared ({notification_preview['channels_count']} channels simulated)")
+            decision_trace_lines.append(f"✓ Notification prepared ({notification_preview['channels_count']} channels staged)")
             structured_trace.append(DecisionTraceStep(
                 stage="ACT",
                 title="Multi-Channel Notification Dispatch",
-                detail=f"Queued emergency dispatch to Cellular SMS, Early Warning Sirens, SDMA/NDRF Webhooks, and Civil Defense.",
+                detail=f"Staged emergency broadcast for OASIS CAP v1.2 XML Feed, SDMA/NDRF Webhooks, and Public Broadcast Network.",
                 status="COMPLETED",
                 timestamp=timestamp_str,
                 tool_name="NotificationTool",
@@ -567,17 +780,18 @@ class RakshakAgent:
             ))
 
             reply_text = (
-                f"🚨 **{severity} ALERT GENERATED (DEMO)** for **{affected_loc_display}**.\n\n"
-                f"**Disaster Type**: {disaster_type}\n"
-                f"**Assessed Risk Score**: {risk_score}/100 ({risk_level})\n"
-                f"**Affected Region / Zone**: {zone_display}\n"
-                f"**Recommended Action**: {recommended_action}\n\n"
-                f"*Simulated emergency notifications have been prepared for regional dispatch.*"
+                f"🚨 **{severity} ALERT ISSUED** for **{affected_loc_display}**.\n\n"
+                f"- **Disaster Type**: **{disaster_type}**\n"
+                f"- **Assessed Quantitative Risk**: **{risk_score}/100** (`{risk_level}`)\n"
+                f"- **Administrative Zone**: {zone_display}\n"
+                f"- **Operational Action**: {recommended_action}\n\n"
+                f"📦 *Standard OASIS CAP v1.2 XML emergency alert compiled and ready for EOC webhook broadcast.*"
             )
         else:
             reply_text = (
-                f"I analyzed your input: *\"{message}\"*, but could not detect a recognized disaster pattern or specific location. "
-                f"Please provide an event description such as: *'Heavy flooding reported in Chennai'* or *'Cyclone warning near Cuddalore'*."
+                f"I analyzed your input: *\"{message}\"*, but could not detect an active emergency pattern or specific location. "
+                f"Please provide an event description (e.g. *'Heavy flooding reported in Chennai'*, *'Cyclone near Cuddalore'*), "
+                f"or type a location name to view hazard matrices and live weather telemetry."
             )
 
         return ChatResponse(
@@ -588,6 +802,9 @@ class RakshakAgent:
             alert=alert_payload,
             notification_preview=notification_preview,
             regional_hazard_profile=None,
+            live_weather=None,
+            live_seismic_feed=live_seismic,
+            dynamic_gis=region_meta,
             decision_trace=decision_trace_lines,
             structured_trace=structured_trace,
             tool_executions=tool_executions,

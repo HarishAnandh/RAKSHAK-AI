@@ -68,3 +68,22 @@ def test_agent_unknown_region():
     agent = RakshakAgent()
     res = asyncio.run(agent.process_event("Severe earthquake detected in Tokyo"))
     assert res.analysis.location == "Region could not be confidently identified"
+
+def test_weather_scraper_tool():
+    from tools.weather_scraper_tool import WeatherScraperTool
+    tool = WeatherScraperTool()
+    data = asyncio.run(tool.scrape_weather("Chennai"))
+    assert data["status"] in ["SUCCESS", "FALLBACK_CACHED"]
+    assert "temperature_c" in data
+    assert "humidity_percent" in data
+    assert "wind_speed_kmph" in data
+    assert "condition" in data
+
+def test_agent_weather_query():
+    agent = RakshakAgent()
+    res = asyncio.run(agent.process_event("What is the weather in Chennai?"))
+    assert res.live_weather is not None
+    assert res.live_weather.area_name != ""
+    assert res.live_weather.temperature_c > -50
+    assert any(log.tool_name == "WeatherScraperTool" for log in res.tool_executions)
+

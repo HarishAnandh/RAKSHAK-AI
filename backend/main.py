@@ -72,11 +72,47 @@ async def analyze_disaster(req: ChatRequest):
     """Dedicated endpoint for direct disaster report analysis."""
     return await chat_with_agent(req)
 
+from tools.weather_scraper_tool import WeatherScraperTool
+
+weather_tool = WeatherScraperTool()
+
+@app.get("/api/weather/{region}")
+async def scrape_weather_for_region(region: str):
+    """Direct web scraping endpoint for real-time regional weather telemetry."""
+    if not region or not region.strip():
+        raise HTTPException(status_code=400, detail="Region parameter is required.")
+    data = await weather_tool.scrape_weather(region.strip())
+    return data
+
+@app.post("/api/scrape-weather")
+async def scrape_weather_post(req: ChatRequest):
+    """Direct web scraping endpoint accepting message or region name."""
+    if not req.message or not req.message.strip():
+        raise HTTPException(status_code=400, detail="Location query cannot be empty.")
+    data = await weather_tool.scrape_weather(req.message.strip())
+    return data
+
 @app.get("/api/demo-events")
 async def get_demo_events():
-    """Returns curated demo disaster events for quick testing."""
+    """Returns curated demo disaster events and live weather queries for quick testing."""
     return {
         "demo_events": [
+            {
+                "id": "weather_chennai",
+                "label": "🌤️ Scrape Live Weather: Chennai",
+                "message": "What is the live weather in Chennai right now?",
+                "disaster_type": "Live Weather Telemetry",
+                "region": "Chennai",
+                "expected_severity": "LIVE_TELEMETRY"
+            },
+            {
+                "id": "weather_salem",
+                "label": "🌧️ Scrape Live Weather: Salem",
+                "message": "Scrape live weather and rain report for Salem",
+                "disaster_type": "Live Weather Telemetry",
+                "region": "Salem",
+                "expected_severity": "LIVE_TELEMETRY"
+            },
             {
                 "id": "flood_chennai",
                 "label": "🌊 Test Flood Alert",
@@ -108,14 +144,6 @@ async def get_demo_events():
                 "disaster_type": "Fire",
                 "region": "Coimbatore",
                 "expected_severity": "CRITICAL"
-            },
-            {
-                "id": "landslide_kanyakumari",
-                "label": "⛰️ Test Landslide Alert",
-                "message": "Major landslide blocking arterial roads near Kanyakumari hilly bypass.",
-                "disaster_type": "Landslide",
-                "region": "Kanyakumari",
-                "expected_severity": "HIGH"
             },
             {
                 "id": "safety_check",

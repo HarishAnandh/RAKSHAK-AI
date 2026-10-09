@@ -4,6 +4,16 @@ import { Zap, ShieldAlert } from 'lucide-react';
 export default function QuickActions({ onSelectScenario, disabled }) {
   const scenarios = [
     {
+      label: "🌤️ Scrape Weather: Chennai",
+      text: "What is the live weather in Chennai right now?",
+      type: "weather"
+    },
+    {
+      label: "🌧️ Scrape Weather: Salem",
+      text: "Scrape live weather and rain report for Salem",
+      type: "weather"
+    },
+    {
       label: "🌊 Test Flood Alert",
       text: "Heavy flooding has been reported in Chennai with low-lying areas inundated.",
       type: "flood"
@@ -17,11 +27,6 @@ export default function QuickActions({ onSelectScenario, disabled }) {
       label: "🌍 Test Earthquake Alert",
       text: "Earthquake tremors detected in Madurai measuring 4.8 on Richter scale.",
       type: "earthquake"
-    },
-    {
-      label: "🔥 Test Fire Alert",
-      text: "Massive forest fire reported near Coimbatore foothills threatening settlements.",
-      type: "fire"
     },
     {
       label: "🛡️ Safety Boundary Check",

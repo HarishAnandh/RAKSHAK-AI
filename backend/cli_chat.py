@@ -83,6 +83,17 @@ async def main():
                     bar = "=" * bar_len + "-" * (10 - bar_len)
                     print(f"     - {h.disaster_type:<12} {h.probability_percent:>3}% [{bar}] ({h.risk_level}) -> {h.historical_notes}")
 
+            # 6. Print Scraped Live Weather if available
+            if response.live_weather:
+                w = response.live_weather
+                print(f"\n[LIVE WEB SCRAPED WEATHER TELEMETRY]")
+                print(f"   Location:       {w.resolved_location}")
+                print(f"   Temperature:    {w.temperature_c}°C ({w.temperature_f}°F) - Feels like {w.feels_like_c}°C")
+                print(f"   Condition:      {w.condition}")
+                print(f"   Humidity:       {w.humidity_percent}% | Rain: {w.precipitation_mm}mm | Wind: {w.wind_speed_kmph} km/h {w.wind_direction}")
+                print(f"   Risk / Status:  {w.meteorological_risk_level} ({w.severe_warning})")
+                print(f"   Web Source:     {w.source_provider} ({w.scraped_at})")
+
             print("\n" + "=" * 70)
 
         except (KeyboardInterrupt, EOFError):

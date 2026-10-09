@@ -10,10 +10,11 @@ import {
   CloudLightning, 
   AlertTriangle,
   PhoneCall,
-  Zap
+  Zap,
+  CloudSun
 } from 'lucide-react';
 
-export default function RegionalHazardCard({ profile, onSimulateEvent }) {
+export default function RegionalHazardCard({ profile, onSimulateEvent, onScrapeWeather }) {
   if (!profile) return null;
 
   const getDisasterIcon = (type) => {
@@ -112,30 +113,42 @@ export default function RegionalHazardCard({ profile, onSimulateEvent }) {
           })}
         </div>
 
-        {onSimulateEvent && profile.hazards.length > 0 && (
-          <div className="simulate-hazard-bar">
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1E293B', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Zap size={14} color="#D97706" />
-              Simulate in {profile.region_name}:
-            </span>
+        <div className="simulate-hazard-bar">
+          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1E293B', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Zap size={14} color="#D97706" />
+            Actions for {profile.region_name}:
+          </span>
+          {onScrapeWeather && (
             <button 
               className="quick-btn"
-              style={{ fontSize: '0.78rem', padding: '0.3rem 0.65rem' }}
-              onClick={() => onSimulateEvent(`Heavy ${profile.hazards[0].disaster_type.toLowerCase()} reported in ${profile.region_name} with low-lying areas affected`)}
+              style={{ fontSize: '0.78rem', padding: '0.3rem 0.65rem', backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+              onClick={() => onScrapeWeather(profile.region_name)}
             >
-              Simulate {profile.hazards[0].disaster_type} Alert
+              <CloudSun size={12} style={{ display: 'inline', marginRight: 4 }} />
+              Scrape Live Weather
             </button>
-            {profile.hazards[1] && (
+          )}
+          {onSimulateEvent && profile.hazards.length > 0 && (
+            <>
               <button 
                 className="quick-btn"
                 style={{ fontSize: '0.78rem', padding: '0.3rem 0.65rem' }}
-                onClick={() => onSimulateEvent(`Severe ${profile.hazards[1].disaster_type.toLowerCase()} warning issued near ${profile.region_name}`)}
+                onClick={() => onSimulateEvent(`Heavy ${profile.hazards[0].disaster_type.toLowerCase()} reported in ${profile.region_name} with low-lying areas affected`)}
               >
-                Simulate {profile.hazards[1].disaster_type} Alert
+                Simulate {profile.hazards[0].disaster_type} Alert
               </button>
-            )}
-          </div>
-        )}
+              {profile.hazards[1] && (
+                <button 
+                  className="quick-btn"
+                  style={{ fontSize: '0.78rem', padding: '0.3rem 0.65rem' }}
+                  onClick={() => onSimulateEvent(`Severe ${profile.hazards[1].disaster_type.toLowerCase()} warning issued near ${profile.region_name}`)}
+                >
+                  Simulate {profile.hazards[1].disaster_type} Alert
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

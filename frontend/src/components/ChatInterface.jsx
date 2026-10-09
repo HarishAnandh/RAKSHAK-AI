@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Shield, AlertTriangle, Sparkles, CheckCircle2, User, Bot, HelpCircle } from 'lucide-react';
 import DisasterAlertCard from './DisasterAlertCard';
 import RegionalHazardCard from './RegionalHazardCard';
+import LiveWeatherCard from './LiveWeatherCard';
 
 export default function ChatInterface({ 
   messages, 
@@ -63,6 +64,14 @@ export default function ChatInterface({
                 {msg.text}
               </div>
 
+              {/* Live Web Scraped Weather Telemetry Card */}
+              {msg.live_weather && (
+                <LiveWeatherCard 
+                  weather={msg.live_weather} 
+                  onTriggerDisasterCheck={onSendMessage}
+                />
+              )}
+
               {/* Safety Warning Callout if unverified real-time query */}
               {msg.analysis?.is_safety_warning && (
                 <div className="safety-callout-box">
@@ -72,7 +81,7 @@ export default function ChatInterface({
                       Real-Time Safety Boundary Protocol Engaged
                     </div>
                     <div className="safety-callout-desc">
-                      RAKSHAK AI does not connect to unverified live feeds for instant physical verification without official telemetry. Simulated emergency alerts can be generated from explicit scenario reports.
+                      RAKSHAK AI cross-references real-time web scraped weather grids, but official emergency declarations require certified SDMA ground telemetry.
                     </div>
                   </div>
                 </div>
@@ -83,6 +92,7 @@ export default function ChatInterface({
                 <RegionalHazardCard 
                   profile={msg.regional_hazard_profile}
                   onSimulateEvent={onSendMessage}
+                  onScrapeWeather={(region) => onSendMessage(`What is the weather in ${region}?`)}
                 />
               )}
 
